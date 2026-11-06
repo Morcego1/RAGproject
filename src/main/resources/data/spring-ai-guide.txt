@@ -1,0 +1,254 @@
+# Руководство по Spring AI 2.0
+
+## Введение
+
+Spring AI — это фреймворк для разработки приложений с искусственным интеллектом в экосистеме Spring. 
+Он предоставляет единый API для работы с различными провайдерами LLM (Large Language Models) и 
+инструментами для создания RAG (Retrieval-Augmented Generation) приложений.
+
+## Основные возможности
+
+### 1. Поддержка провайдеров LLM
+
+Spring AI поддерживает множество провайдеров:
+- **OpenAI** (GPT-4, GPT-3.5, Embeddings)
+- **Anthropic** (Claude)
+- **Ollama** (локальные модели)
+- **Azure OpenAI**
+- **Google Vertex AI**
+- **Mistral AI**
+
+### 2. Vector Store
+
+Для хранения эмбеддингов поддерживаются:
+- **PostgreSQL + pgvector**
+- **Redis**
+- **Chroma**
+- **Qdrant**
+- **Milvus**
+- **Elasticsearch**
+
+### 3. RAG (Retrieval-Augmented Generation)
+
+RAG — это паттерн, который позволяет LLM отвечать на вопросы на основе 
+конкретных документов:
+
+1. **Индексация**: Документы разбиваются на чанки, для каждого чанка 
+   вычисляется эмбеддинг и сохраняется в векторное хранилище.
+2. **Поиск**: При поступении запроса, для него вычисляется эмбеддинг, 
+   и находятся наиболее похожие чанки.
+3. **Генерация**: Найденные чанки передаются как контекст LLM, которая 
+   генерирует ответ на основе этого контекста.
+
+## Установка
+
+### Maven
+
+```xml
+<dependencyManagement>
+    <dependencies>
+        <dependency>
+            <groupId>org.springframework.ai</groupId>
+            <artifactId>spring-ai-bom</artifactId>
+            <version>2.0.2</version>
+            <type>pom</type>
+            <scope>import</scope>
+        </dependency>
+    </dependencies>
+</dependencyManagement>
+
+<dependencies>
+    <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-openai-spring-boot-starter</artifactId>
+    </dependency>
+    <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-pgvector-store-spring-boot-starter</artifactId>
+    </dependency>
+</dependencies>
+```
+
+### Конфигурация
+
+```yaml
+spring:
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY}
+      chat:
+        options:
+          model: gpt-4o-mini
+          temperature: 0.1
+      embedding:
+        options:
+          model: text-embedding-3-small
+          dimensions: 1536
+    vectorstore:
+      pgvector:
+        dimensions: 1536
+        table-name: document_chunks
+        distance-type: cosine
+```
+
+## Пример использования
+
+### Чат с LLM
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ChatService {
+    
+    private final ChatClient chatClient;
+    
+    public String chat(String message) {
+        return chatClient.prompt()
+                .user(message)
+                .call()
+                .content();
+    }
+}
+```
+
+### Работа с векторным хранилищем
+
+```java
+@Service
+@RequiredArgsConstructor
+public class VectorStoreService {
+    
+    private final VectorStore vectorStore;
+    
+    public void addDocument(String content) {
+        Document document = new Document(content);
+        vectorStore.add(document);
+    }
+    
+    public List<EmbeddingQueryResult> search(String query) {
+        return vectorStore.similaritySearch(
+            SearchRequest.builder()
+                .query(query)
+                .topK(5)
+                .build()
+        );
+    }
+}
+```
+
+### RAG-запрос
+
+```java
+public String ragQuery(String query) {
+    // 1. Поиск релевантных чанков
+    var results = vectorStore.similaritySearch(
+        SearchRequest.builder()
+            .query(query)
+            .topK(5)
+            .build()
+    );
+    
+    // 2. Формирование контекста
+    String context = results.stream()
+        .map(r -> r.getContent())
+        .collect(Collectors.joining("\n\n"));
+    
+    // 3. Генерация ответа
+    return chatClient.prompt()
+        .system("Отвечай на основе контекста: " + context)
+        .user(query)
+        .call()
+        .content();
+}
+```
+
+## REST API
+
+### Загрузка документа
+
+```bash
+curl -X POST http://localhost:8080/api/upload \
+  -F "file=@documentation.txt"
+```
+
+### Поиск
+
+```bash
+curl -X POST http://localhost:8080/api/search \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Как настроить Spring AI?", "topK": 5}'
+```
+
+### RAG-запрос
+
+```bash
+curl -X POST http://localhost:8080/api/rag \
+  -H "Content-Type: application/json" \
+  -d '{"query": "Какие провайдеры LLM поддерживаются?", "topK": 5}'
+```
+
+## PostgreSQL + pgvector
+
+### Установка pgvector
+
+```bash
+# Ubuntu/Debian
+sudo apt-get install postgresql-16-pgvector
+
+# macOS
+brew install pgvector
+
+# Docker
+docker run --name postgres-vector \
+  -e POSTGRES_PASSWORD=postgres \
+  -p 5432:5432 \
+  pgvector/pgvector:pg16
+```
+
+### Создание индекса HNSW
+
+```sql
+CREATE INDEX idx_document_chunks_embedding 
+ON document_chunks 
+USING hnsw (embedding vector_cosine_ops);
+```
+
+### Типы расстояний
+
+- **cosine** — косинусное расстояние (по умолчанию)
+- **l2** — евклидово расстояние
+- **inner_product** — скалярное произведение
+
+## Архитектура приложения
+
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Client     │────▶│   REST API   │────▶│  Services   │
+│ (Browser,   │     │  (Controller)│     │ (Rag,       │
+│  Postman)   │     │              │     │  Upload)    │
+└─────────────┘     └──────────────┘     └──────┬──────┘
+                                                │
+                     ┌──────────────────────────┤
+                     │                          │
+              ┌──────▼──────┐          ┌───────▼──────┐
+              │   JPA Repo  │          │  Vector Store│
+              │   (MySQL)   │          │ (pgvector)   │
+              └─────────────┘          └──────────────┘
+```
+
+## Советы и рекомендации
+
+1. **Размер чанков**: Оптимальный размер чанка — 500-1000 токенов.
+2. **Перекрытие**: Используйте перекрытие между чанками (10-20%) для 
+   лучшего контекста.
+3. **Индекс HNSW**: Для больших объёмов данных используйте HNSW индекс 
+   вместо IVFFlat для более быстрого поиска.
+4. **Кэширование**: Кэшируйте результаты RAG-запросов для популярных 
+   запросов.
+5. **Мониторинг**: Отслеживайте время генерации и стоимость API-вызовов.
+
+## Полезные ссылки
+
+- [Документация Spring AI](https://docs.spring.io/spring-ai/reference/)
+- [GitHub Spring AI](https://github.com/spring-projects/spring-ai)
+- [pgvector](https://github.com/pgvector/pgvector)

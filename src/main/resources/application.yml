@@ -1,0 +1,86 @@
+# =============================================================================
+# RAG Project Configuration
+# =============================================================================
+
+spring:
+  application:
+    name: rag-project
+
+  # -----------------------
+  # PostgreSQL Database (реляционная часть)
+  # -----------------------
+  datasource:
+    url: jdbc:postgresql://localhost:5432/rag_db
+    username: postgres
+    password: ${SPRING_DATASOURCE_PASSWORD:postgres}
+    driver-class-name: org.postgresql.Driver
+
+  # -----------------------
+  # JPA / Hibernate - управляет только таблицами documents и document_chunks
+  # -----------------------
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    open-in-view: false
+
+  # -----------------------
+  # pgvector - векторное хранилище Spring AI (отдельная таблица vector_store)
+  # -----------------------
+  ai:
+    # Явно выбираем Ollama как поставщика моделей
+    # (по умолчанию Spring AI ожидает spring.ai.model.chat=openai)
+    model:
+      chat: ollama
+      embedding: ollama
+
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        table-name: vector_store
+        dimensions: 768
+        distance-type: COSINE_DISTANCE
+        index-type: HNSW
+
+    # -----------------------
+    # Ollama - локальные модели, бесплатно, без интернета
+    # -----------------------
+    ollama:
+      base-url: http://localhost:11434
+      init:
+        # Модели уже скачаны через `ollama pull`, автоматически не тянем
+        pull-model-strategy: never
+      chat:
+        options:
+          model: llama3.2:3b
+          temperature: 0.1
+          num-ctx: 8192
+      embedding:
+        options:
+          model: nomic-embed-text
+
+  # -----------------------
+  # File Upload
+  # -----------------------
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# =============================================================================
+# Server
+# =============================================================================
+server:
+  port: 8080
+
+# =============================================================================
+# Logging
+# =============================================================================
+logging:
+  level:
+    com.example.ragproject: DEBUG
+    org.springframework.ai: INFO

@@ -1,0 +1,23 @@
+# ========== Line endings ==========
+# Текст: LF для Unix/Mac, CRLF для Windows-скриптов
+* text=auto eol=lf
+*.sh text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Бинарные файлы — не трогать
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+
+# Артефакты сборки
+*.class binary
+*.jar binary
+*.war binary
+*.ear binary
+
+# Maven wrapper
+/mvnw text eol=lf
